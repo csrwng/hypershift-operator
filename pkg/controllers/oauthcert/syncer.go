@@ -70,6 +70,7 @@ func (o *OAuthCertSyncer) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	if currentValue != hash {
 		oauthDeployment.Spec.Template.ObjectMeta.Annotations[CertHashAnnotation] = hash
 		updateNeeded = true
+		controllerLog.Info("An update is needed")
 	}
 	if !updateNeeded {
 		return ctrl.Result{}, nil
@@ -80,10 +81,12 @@ func (o *OAuthCertSyncer) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to get CA from router CA secret: %v", err)
 	}
+	controllerLog.Info("Obtained CA from router-certs-default")
 	oauthConfig, err := o.Client.CoreV1().ConfigMaps(o.Namespace).Get("oauth-openshift", metav1.GetOptions{})
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to get oauth server config: %v", err)
 	}
+	controllerLog.Info("The current external address", "address", oauthConfig.Data["externalAddress"])
 	hostnames := sets.NewString(oauthConfig.Data["externalAddress"])
 	cert, err := ca.MakeServerCert(hostnames, 0)
 	if err != nil {
@@ -94,12 +97,19 @@ func (o *OAuthCertSyncer) Reconcile(req ctrl.Request) (ctrl.Result, error) {
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to encode certificate: %v", err)
 	}
+	fmt.Println("Generated new server cert")
+	fmt.Println(string(certBytes))
+	fmt.Printf("\n\n")
+	fmt.Printf("Generated new server key")
+	fmt.Println(string(keyBytes))
+	fmt.Printf("\n\n")
 	oauthSecret, err := o.Client.CoreV1().Secrets(o.Namespace).Get("oauth-openshift", metav1.GetOptions{})
 	if err != nil {
 		return ctrl.Result{}, fmt.Errorf("cannot get oauth server secret: %v", err)
 	}
-	secret.Data["server.crt"] = certBytes
-	secret.Data["server.key"] = keyBytes
+	oauthSecret.Data["server.crt"] = certBytes
+	oauthSecret.Data["server.key"] = keyBytes
+	controllerLog.Info("About to update oauth secret")
 	if _, err = o.Client.CoreV1().Secrets(o.Namespace).Update(oauthSecret); err != nil {
 		return ctrl.Result{}, fmt.Errorf("failed to update oauth secret: %v", err)
 	}
